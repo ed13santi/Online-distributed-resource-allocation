@@ -10,16 +10,41 @@ import numpy as np
 class Node:
     def __init__(self, capacities):
         self.capacities = capacities # resource capacities for each resource type in the node
+        self.remaining_capacities = self.capacities
+
+    def process_new_task(self, task):
+        # check that task being added doesn't exceed available resources
+        assert task.w > 0
+        for i in range(len(self.capacities)):
+            assert all(rc >= d for rc, d in zip(self.remaining_capacities, task.ds))
+
+        self.processing_tasks.append(task)
+        self.remaining_capacities = [rc - d for rc, d in zip(self.remaining_capacities, task.ds)]
+
+
+class TaskType:
+    def __init__(self, feature_vector, wait_time):
+        self.mean_service_time = feature_vector[0] # exponential distribution
+        self.mean_utility_rate = feature_vector[1] # Poisson distribution
+        self.max_wait_time = wait_time # deterministic
+        self.mean_demand_resources = feature_vector[2:] # Poisson distribution
+
+
+class Task:
+    def __init__(self, task_type):
+        self.s = np.random.exponential(task_type.mean_service_time)
+        self.u = np.random.poisson(task_type.mean_utility_rate)
+        self.w = task_type.max_wait_time
+        self.ds = np.random.poisson(task_type.mean_demand_resources)
+               
 
 class Cluster:
     def __init__(self, nodes):
         self.nodes = nodes
-        self.tasks_to_be_received = []
         self.received_tasks = []
         self.received_tasks_external = []
         self.receive_external_tasks = False
         self.external_task_means = ()
-        self.processing_tasks = []
 
     def initialize_nodes_uniform_distribution(self, n_nodes, lows, highs):
         nodes = []
@@ -44,27 +69,30 @@ class Cluster:
         self.receive_external_tasks(task_types)
         self.received_tasks = self.tasks_to_be_received + self.received_tasks_external
 
+    def greedy_allocation(self):
+        # sort received tasks in ascending order of utility
+        self.received_tasks.sort(reverse=False, key=(lambda task: task.u))
+        # sort nodes in descending order of node capacity
+        self.nodes = self.nodes(reverse=True, key=(lambda node: node.capacities))
+        # iterate through tasks in reverse order so that if you delete current element
+        # it does not affect the index of the next element in the iteration
+        for i in range(len(self.received_tasks)-1, -1, -1):
+            node_index = -1
+            for j in range(len.self.nodes):
+
+            # need to reorder the nodes
+
+
+    def selectAndAllocate(self):
+        self.greedy_allocation()
+
     def iterate(self, task_types):
         self.receive_all_tasks(task_types)
+        self.selectAndAllocate()
         # ALLOCATED <-- selectAndAllocate(TASKS)
         # TASKS <-- TASKS \ ALLOCATED
         # forward tasks remaining in TASKS
         # update status of currently processing tasks
-
-
-class TaskType:
-    def __init__(self, feature_vector, wait_time):
-        self.mean_service_time = feature_vector[0] # exponential distribution
-        self.mean_utility_rate = feature_vector[1] # Poisson distribution
-        self.max_wait_time = wait_time # deterministic
-        self.mean_demand_resources = feature_vector[2:] # Poisson distribution
-
-class Task:
-    def __init__(self, task_type):
-        self.s = np.random.exponential(task_type.mean_service_time)
-        self.u = np.random.poisson(task_type.mean_utility_rate)
-        self.w = task_type.max_wait_time
-        self.ds = np.random.poisson(task_type.mean_demand_resources)
 
 
 ##################################################################################################
@@ -74,8 +102,6 @@ class Task:
 def add_connection(matrix, a, b):
     matrix[a][b] = 1
     matrix[b][a] = 1
-
-
 
 
 ##################################################################################################
