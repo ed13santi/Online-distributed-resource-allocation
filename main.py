@@ -72,7 +72,7 @@ class Cluster:
             for low, high in zip(lows, highs):
                 c = np.random.uniform(low, high)
                 capacities.append(c)
-            nodes.append(capacities)
+            nodes.append(Node(capacities))
         self.nodes = nodes
 
     def receive_external_tasks_func(self, task_types):
@@ -85,19 +85,19 @@ class Cluster:
         # sort received tasks in ascending order of utility
         self.received_tasks.sort(reverse=False, key=(lambda task: task.u))
         # sort nodes in descending order of node capacity (first CPU and then network)
-        self.nodes = self.nodes(reverse=True, key=(lambda node: node.capacities))
+        self.nodes.sort(reverse=True, key=(lambda node: node.capacities))
         # iterate through tasks in reverse order so that if you delete current element
         # it does not affect the index of the next element in the iteration
         for i in range(len(self.received_tasks)-1, -1, -1):
-            for j in range(len.self.nodes):
+            for j in range(len(self.nodes)):
                 enough_capacity = True
-                for c, d in zip(self.nodes[j].capacities, self.received_tasks[i].ds):
+                for c, d in zip(self.nodes[j].remaining_capacities, self.received_tasks[i].ds):
                     if d > c:
                         enough_capacity = False
                 if enough_capacity:
                     self.nodes[j].process_new_task(self.received_tasks[i])
                     del self.received_tasks[i]
-                    self.nodes = self.nodes(reverse=True, key=(lambda node: node.capacities))
+                    self.nodes.sort(reverse=True, key=(lambda node: node.capacities))
                     break
 
     def selectAndAllocate(self):
@@ -186,9 +186,9 @@ def main():
     clusters = []
     for i in range(no_clusters):
         if i in C_receivers:
-            Cluster([], A[i], True, received_tasks_means[C_receivers.index(i)]) 
+            clusters.append(Cluster([], A[i], True, received_tasks_means[C_receivers.index(i)]))
         else:
-            Cluster([], A[i], False) 
+            clusters.append(Cluster([], A[i], False))
     n_nodes_each_cluster = [32, 72, 52, 84, 64, 76, 60, 64, 76, 60, 80, 44, 64, 88, 56, 52]
     for c, n in zip(clusters, n_nodes_each_cluster):
         c.initialize_nodes_uniform_distribution(n, [50,50], [150,150]) # set nodes to have a random capacity for both CPU and netowrk in range [50,150]
@@ -214,7 +214,7 @@ def main():
     utility_rates = []
     proc_tasks = []
 
-    for _ in range(2000):
+    for time_step in range(100):
         for c in clusters:
             c.advanceTime(task_types)
         for c in clusters:
@@ -225,9 +225,11 @@ def main():
         cluster_utility_rates = [c.local_utility() for c in clusters]
         utility_rate = sum(cluster_utility_rates)
         utility_rates.append(utility_rate)
-        proc_tasks.append(sum([len(c.tasks_to_be_received) for c in clusters]))
+        #proc_tasks.append(sum([len(c.tasks_to_be_received) for c in clusters]))
 
-    plt.plot(proc_tasks)
+        print(time_step)
+
+    plt.plot(utility_rates)
     plt.show()
             
 
