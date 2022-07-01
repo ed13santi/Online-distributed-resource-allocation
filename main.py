@@ -37,6 +37,7 @@ class Task:
         self.u = np.random.poisson(task_type.mean_utility_rate)
         self.w = task_type.max_wait_time
         self.ds = np.random.poisson(task_type.mean_demand_resources)
+        self.taskType = self.task_type
                
 
 class Cluster:
@@ -99,6 +100,32 @@ class Cluster:
                     del self.received_tasks[i]
                     self.nodes.sort(reverse=True, key=(lambda node: node.capacities))
                     break
+
+    def get_current_state(self, allocable_tasks, taskTypes): # I think it is calculated using allocable_tasks but I am not 100% sure
+        taskState = np.zeros((len(taskTypes),))
+        for task in allocable_tasks:
+            taskTypeIndex = taskTypes.index(task.taskType)
+            taskState[taskTypeIndex] += 1
+
+        
+
+    def get_allocable(self):
+        allocable_tasks = []
+        for task in self.received_tasks:
+            for node in self.nodes:
+                enough_capacity = True
+                for c, d in zip(node.remaining_capacities, task.ds):
+                    if d > c:
+                        enough_capacity = False
+                        break
+                if enough_capacity:
+                    allocable_tasks.append(task)
+                    break
+
+    def learned_local_allocation(self):
+        allocable_tasks = self.get_allocable(self)
+        while len(allocable_tasks) > 0:
+
 
     def selectAndAllocate(self):
         self.greedy_allocation()
@@ -175,7 +202,7 @@ def main():
     received_tasks_means_light = [tuple(el/2 for el in listEl) for listEl in received_tasks_means_heavy]
 
     # light or heavy task load
-    heavy = True # if false we use light
+    heavy = False # if false we use light
 
     if heavy:
         received_tasks_means = received_tasks_means_heavy
