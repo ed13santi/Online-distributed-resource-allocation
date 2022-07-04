@@ -1,3 +1,4 @@
+from math import prod
 import numpy as np
 import random
 import matplotlib.pyplot as plt
@@ -41,7 +42,7 @@ class Task:
                
 
 class Cluster:
-    def __init__(self, nodes, network_adjacency_matrix_row, receive_external_tasks_bool, external_task_means=()):
+    def __init__(self, nodes, network_adjacency_matrix_row, receive_external_tasks_bool, taskTypes, external_task_means=()):
         self.nodes = nodes
         self.received_tasks = []
         self.received_tasks_external = []
@@ -51,6 +52,24 @@ class Cluster:
         else:
             self.external_task_means = ()
         self.neighbors = self.get_neighbors(network_adjacency_matrix_row)
+        self.taskTypes = taskTypes
+        self.Q = self.initialize_Q_table()
+
+    def initialize_Q_table(self):
+        max_received_tasks = [100, 50, 25, 25] # 100 means [0, 99]
+         # kinda random, find better nubmers or automatic way to determine this
+        # task_states = prod(max_received_tasks)
+
+        try:
+            no_resource_types = len(self.nodes[0].capacities)
+        except:
+            raise Exception("Possible that the list of nodes in the cluster is empty")
+        #no_nodes = len(self.nodes)
+        #resource_states =  self.levels ** (no_nodes, no_resource_types)
+        dims_resource_states = [len(self.nodes) for _ in range(self.levels * no_resource_types)]
+
+        return np.zeros(max_received_tasks + dims_resource_states)
+        
 
     def local_utility(self):
         tot = 0
@@ -101,12 +120,25 @@ class Cluster:
                     self.nodes.sort(reverse=True, key=(lambda node: node.capacities))
                     break
 
-    def get_current_state(self, allocable_tasks, taskTypes): # I think it is calculated using allocable_tasks but I am not 100% sure
-        taskState = np.zeros((len(taskTypes),))
+    def get_current_state(self, allocable_tasks): # I think it is calculated using allocable_tasks but I am not 100% sure
+        taskState = np.zeros((len(self.taskTypes),))
         for task in allocable_tasks:
-            taskTypeIndex = taskTypes.index(task.taskType)
+            taskTypeIndex = self.taskTypes.index(task.taskType)
             taskState[taskTypeIndex] += 1
 
+        levelsBoundaries = [25, 75]
+        n_levels = len(levelsBoundaries) + 1
+        n_resource_types = len(self.taskTypes[0].mean_demand_resources)
+        resourceState = np.zeros((n_levels, n_resource_types)) # [level0CPU, level1CPU, level2CPU, level0Network, level1Network, level2Network]
+        for node in self.nodes:
+            for resource_idx, c in enumerate(node.remaining_capacities):
+                idx = 0
+                for i, el in enumerate(levelsBoundaries):
+                    if c > el:
+                        idx == i + 1
+                resourceState[resource_idx*n_levels+idx] += 1
+
+        return np.concatenate((taskState, resourceState))
         
 
     def get_allocable(self):
@@ -122,13 +154,30 @@ class Cluster:
                     allocable_tasks.append(task)
                     break
 
+
+    def learned_policy(self, s):
+        tmp = self.Q
+        for el in s:
+            tmp = tmp[el]
+        
+        
+
     def learned_local_allocation(self):
         allocable_tasks = self.get_allocable(self)
         while len(allocable_tasks) > 0:
+            s = self.get_current_state(allocable_tasks)
+            t = self.learnedPolicy(s) # to be defined
+            if t == None:
+                allocable_tasks = []
+            else:
+                self.allocate_task(t) # to be implmented, should add task to processing tasks and remove from reeived tasks
+                allocable_tasks = self.get_allocable(self)
+                self.learn(s, t) # to be implemented
 
 
     def selectAndAllocate(self):
-        self.greedy_allocation()
+        #self.greedy_allocation()
+        self.learned_local_allocation()
 
     def random_forwarding(self):
         out = []
@@ -209,17 +258,7 @@ def main():
     else:        
         received_tasks_means = received_tasks_means_light
 
-    # cluster is the list of clusters of respip ources
-    clusters = []
-    for i in range(no_clusters):
-        if i in C_receivers:
-            clusters.append(Cluster([], A[i], True, received_tasks_means[C_receivers.index(i)]))
-        else:
-            clusters.append(Cluster([], A[i], False))
-    n_nodes_each_cluster = [32, 72, 52, 84, 64, 76, 60, 64, 76, 60, 80, 44, 64, 88, 56, 52]
-    for c, n in zip(clusters, n_nodes_each_cluster):
-        c.initialize_nodes_uniform_distribution(n, [50,50], [150,150]) # set nodes to have a random capacity for both CPU and netowrk in range [50,150]
-        ### !EXCLUDES HIGH BUT IT DOESN'T MATTER IF VALUES TAKE CONTINUOUS DISTRIBUTION
+    
 
 
     # task types
@@ -228,6 +267,18 @@ def main():
                   TaskType((35,6,15,48), 10),
                   TaskType((50,25,47,43),10)]
 
+
+    # cluster is the list of clusters of respip ources
+    clusters = []
+    for i in range(no_clusters):
+        if i in C_receivers:
+            clusters.append(Cluster([], A[i], True, task_types, received_tasks_means[C_receivers.index(i)]))
+        else:
+            clusters.append(Cluster([], A[i], False, task_types))
+    n_nodes_each_cluster = [32, 72, 52, 84, 64, 76, 60, 64, 76, 60, 80, 44, 64, 88, 56, 52]
+    for c, n in zip(clusters, n_nodes_each_cluster):
+        c.initialize_nodes_uniform_distribution(n, [50,50], [150,150]) # set nodes to have a random capacity for both CPU and netowrk in range [50,150]
+        ### !EXCLUDES HIGH BUT IT DOESN'T MATTER IF VALUES TAKE CONTINUOUS DISTRIBUTION
 
     # resources types 
     R = ["CPU", "Network"]
