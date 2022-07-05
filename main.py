@@ -1,4 +1,6 @@
+from cmath import inf
 from math import prod
+from unittest.mock import NonCallableMagicMock
 import numpy as np
 import random
 import matplotlib.pyplot as plt
@@ -25,11 +27,12 @@ class Node:
 
 
 class TaskType:
-    def __init__(self, feature_vector, wait_time):
+    def __init__(self, feature_vector, wait_time, type_index):
         self.mean_service_time = feature_vector[0] # exponential distribution
         self.mean_utility_rate = feature_vector[1] # Poisson distribution
         self.max_wait_time = wait_time # deterministic
         self.mean_demand_resources = feature_vector[2:] # Poisson distribution
+        self.task_type_idx = type_index
 
 
 class Task:
@@ -39,10 +42,17 @@ class Task:
         self.w = task_type.max_wait_time
         self.ds = np.random.poisson(task_type.mean_demand_resources)
         self.taskType = self.task_type
+
+    def __eq__(self, other): 
+        if not isinstance(other, Task):
+            # don't attempt to compare against unrelated types
+            return NotImplemented
+
+        return self.s == other.s and self.u == other.u and self.w == other.w and self.ds == other.ds and self.taskType == other.taskType
                
 
 class Cluster:
-    def __init__(self, nodes, network_adjacency_matrix_row, receive_external_tasks_bool, taskTypes, external_task_means=()):
+    def __init__(self, nodes, network_adjacency_matrix_row, receive_external_tasks_bool, taskTypes, external_task_means=(), alpha=0.1, gamma=0.99):
         self.nodes = nodes
         self.received_tasks = []
         self.received_tasks_external = []
@@ -54,10 +64,15 @@ class Cluster:
         self.neighbors = self.get_neighbors(network_adjacency_matrix_row)
         self.taskTypes = taskTypes
         self.Q = self.initialize_Q_table()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.epsilon = 1
+        self.epsilon_decay = 0.99
+
 
     def initialize_Q_table(self):
         max_received_tasks = [100, 50, 25, 25] # 100 means [0, 99]
-         # kinda random, find better nubmers or automatic way to determine this
+        # kinda random, find better nubmers or automatic way to determine this
         # task_states = prod(max_received_tasks)
 
         try:
@@ -68,7 +83,9 @@ class Cluster:
         #resource_states =  self.levels ** (no_nodes, no_resource_types)
         dims_resource_states = [len(self.nodes) for _ in range(self.levels * no_resource_types)]
 
-        return np.zeros(max_received_tasks + dims_resource_states)
+        no_actions = len(max_received_tasks) + 1
+
+        return np.zeros((max_received_tasks + dims_resource_states + [no_actions],))
         
 
     def local_utility(self):
@@ -78,12 +95,14 @@ class Cluster:
                 tot += task.u
         return tot
 
+
     def get_neighbors(self, network_adjacency_matrix_row):
         neighbors = []
         for i in range(network_adjacency_matrix_row.shape[0]):
             if network_adjacency_matrix_row[i] != 0:
                 neighbors.append((i,network_adjacency_matrix_row[i]))
         return neighbors
+
 
     def initialize_nodes_uniform_distribution(self, n_nodes, lows, highs):
         nodes = []
@@ -95,11 +114,13 @@ class Cluster:
             nodes.append(Node(capacities))
         self.nodes = nodes
 
+
     def receive_external_tasks_func(self, task_types):
         for mean, task_type in zip(self.external_task_means, task_types):
             no_tasks_of_current_type = np.random.poisson(mean)
             for _ in range(no_tasks_of_current_type):
                 self.received_tasks.append(Task(task_type))
+
 
     def greedy_allocation(self):
         # sort received tasks in ascending order of utility
@@ -119,6 +140,7 @@ class Cluster:
                     del self.received_tasks[i]
                     self.nodes.sort(reverse=True, key=(lambda node: node.capacities))
                     break
+
 
     def get_current_state(self, allocable_tasks): # I think it is calculated using allocable_tasks but I am not 100% sure
         taskState = np.zeros((len(self.taskTypes),))
@@ -155,29 +177,132 @@ class Cluster:
                     break
 
 
-    def learned_policy(self, s):
+    def Q_s(self, s):
         tmp = self.Q
         for el in s:
             tmp = tmp[el]
+        return tmp
+
+
+    def learned_policy(self, s):
+        tmp = self.Q_s(s)
+
+        mask = []
+        for i in range(len(self.taskTypes)):
+            if s[i] > 0:
+                mask.append(1)
+            else:
+                mask.append(0)
+
+        a = None
+        for i, (switch, val) in enumerate(zip(mask, tmp)):
+            if switch == 1:
+                if a == None:
+                    a = i
+                else:
+                    if val > tmp[a]:
+                        a = i
+
+        if a == None:
+            a = len(self.taskTypes)
+
+        return np.argmax(tmp)
+
+
+    def allocate_task(self, a, allocable_tasks):
+        task = None
+        idx = None
+        for i, t in enumerate(allocable_tasks):
+            if t.taskType.task_type_idx == a:
+                if task == None:
+                    task = t
+                    idx = i
+                else:
+                    if t.u > task.u:
+                        task = t
+                        idx = i
         
+        assert task != None
+
+        self.nodes.sort(reverse=True, key=(lambda node: node.capacities))
+        for j in range(len(self.nodes)):
+            enough_capacity = True
+            for c, d in zip(self.nodes[j].remaining_capacities, task.ds):
+                if d > c:
+                    enough_capacity = False
+            if enough_capacity:
+                self.nodes[j].process_new_task(task)
+                for z, t in enumerate(self.received_tasks):
+                    if t == task:
+                        del self.received_tasks[z]
+                self.nodes.sort(reverse=True, key=(lambda node: node.capacities))
+                return task.u
         
+        return 0
+        # which node does the task go to? Currently best-first allocation
+
+    
+    def Q_s_a(self, s, a):
+        return self.Q(s)[a]
+
+
+    def pi(self, s):
+        tmp = self.Q_s(s)
+        mask = []
+        nonzero = 0
+        for i in range(len(self.taskTypes)):
+            if s[i] > 0:
+                mask.append(1)
+                nonzero += 1
+            else:
+                mask.append(0)
+
+        a = [0 for _ in range(len(self.taskTypes)+1)]
+        max = -inf
+        maxidx = 0
+        for i, mask_el in enumerate(mask):
+            if mask_el == 1:
+                a[i] = self.epsilon / nonzero
+                if tmp[i] > max:
+                    maxidx = i
+        a[maxidx] = self.epsilon / nonzero + 1 - self.epsilon
+
+        return a
+
+
+
+    def learn(self, s, a, r, s_new):
+        tmp = self.Q(s)
+        Q_s_new = self.Q(s_new)
+
+        tmp[a] = (1-self.alpha)*tmp[a] + self.alpha*(r + self.gamma*(sum([pi_a*Q_s_a for pi_a, Q_s_a in zip(self.pi(s_new),Q_s_new)])))
+
+        self.epsilon *= max(self.epsilon_decay, 0.001) # minimum epsilon is 0.001
+
 
     def learned_local_allocation(self):
         allocable_tasks = self.get_allocable(self)
+        s = self.get_current_state(allocable_tasks)
         while len(allocable_tasks) > 0:
-            s = self.get_current_state(allocable_tasks)
-            t = self.learnedPolicy(s) # to be defined
-            if t == None:
+            allocable_tasks = self.get_allocable(self)
+            a = self.learned_policy(s)
+            if a == len(self.taskTypes):
                 allocable_tasks = []
             else:
-                self.allocate_task(t) # to be implmented, should add task to processing tasks and remove from reeived tasks
+                r = self.allocate_task(a, allocable_tasks) # to be implemented, should add task to processing tasks and remove from received tasks
                 allocable_tasks = self.get_allocable(self)
-                self.learn(s, t) # to be implemented
+                s_new = self.get_current_state(allocable_tasks)
+                self.learn(s, a, r, s_new) 
+                s = s_new
+                # THIS WAY THE Q VALUE OF THE None action is never updated
+                # it is possible that the action a is not feasible and no task is allocated and it gets stuck in a long loop of choosing something that doesnt change the allocable tasks and it keeps choosing
+                # the same action
 
 
     def selectAndAllocate(self):
         #self.greedy_allocation()
         self.learned_local_allocation()
+
 
     def random_forwarding(self):
         out = []
@@ -187,8 +312,10 @@ class Cluster:
         self.received_tasks = []
         return out
 
+
     def forwardUnallocatedTasks(self):
         return self.random_forwarding()
+
 
     def advanceTime(self, task_types):
         # reduce transfer time by 1 for tasks being transferred and when it reaches 0 add the tasks to received_tasks
@@ -209,6 +336,7 @@ class Cluster:
                 task.s -= 1
                 if task.s == 0:
                     del node.processing_tasks[i]
+
 
     def allocationAndRouting(self):
         self.selectAndAllocate()
@@ -262,10 +390,10 @@ def main():
 
 
     # task types
-    task_types = [TaskType((20,1,9,8),   10),
-                  TaskType((30,5,45,8),  10),
-                  TaskType((35,6,15,48), 10),
-                  TaskType((50,25,47,43),10)]
+    task_types = [TaskType((20,1,9,8),   10, 0),
+                  TaskType((30,5,45,8),  10, 1),
+                  TaskType((35,6,15,48), 10, 2),
+                  TaskType((50,25,47,43),10, 3)]
 
 
     # cluster is the list of clusters of respip ources
