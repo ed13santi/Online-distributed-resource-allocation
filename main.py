@@ -189,8 +189,17 @@ class Cluster:
             tmp = {k: tmp}
         return tmp
 
-    def modify_nested_dict(self, keys, val, i):
-        new = self.init_nested_dict(keys[i:], [0 for _ in range(len(self.taskTypes) + 1)]) #initialise Q value at 0
+    def modify_nested_dict(self, d, keys, val, i):
+        tmp = self.init_nested_dict(keys[i:], val) #initialise Q value at 0
+        for j in range(i, 0, -1):
+            tmp_dict = d
+            for k in keys[:j]:
+                tmp_dict = tmp_dict[k]
+            tmp_dict[i] = tmp
+            tmp = tmp_dict
+        
+        return tmp
+        
         
 
 
