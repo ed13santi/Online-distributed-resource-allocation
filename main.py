@@ -34,6 +34,19 @@ class TaskType:
         self.mean_demand_resources = feature_vector[2:] # Poisson distribution
         self.task_type_idx = type_index
 
+    def __eq__(self, other): 
+        if not isinstance(other, Task):
+            # don't attempt to compare against unrelated types
+            return NotImplemented
+
+        cond1 = self.mean_service_time == other.mean_service_time
+        cond2 = self.mean_utility_rate == other.mean_utility_rate
+        cond3 = self.max_wait_time == other.max_wait_time 
+        cond4 = self.mean_demand_resources == other.mean_demand_resources 
+        cond5 = self.task_type_idx == other.task_type_idx
+
+        return cond1 and cond2 and cond3 and cond4 and cond5
+
 
 class Task:
     def __init__(self, task_type):
@@ -48,7 +61,13 @@ class Task:
             # don't attempt to compare against unrelated types
             return NotImplemented
 
-        return self.s == other.s and self.u == other.u and self.w == other.w and self.ds == other.ds and self.taskType == other.taskType
+        cond1 = self.s == other.s
+        cond2 = self.u == other.u
+        cond3 = self.w == other.w 
+        cond4 = all(self.ds == other.ds) 
+        cond5 = self.taskType == other.taskType 
+
+        return cond1 and cond2 and cond3 and cond4 and cond5
                
 
 class Cluster:
@@ -170,6 +189,7 @@ class Cluster:
 
     def get_allocable(self):
         allocable_tasks = []
+        task_type_indexes = []
         for task in self.received_tasks:
             for node in self.nodes:
                 enough_capacity = True
@@ -180,6 +200,7 @@ class Cluster:
                 if enough_capacity:
                     allocable_tasks.append(task)
                     break
+
         return allocable_tasks
 
 
@@ -190,18 +211,15 @@ class Cluster:
         return tmp
 
     def modify_nested_dict(self, d, keys, val, i):
-        tmp = self.init_nested_dict(keys[i:], val) #initialise Q value at 0
-        for j in range(i, 0, -1):
-            tmp_dict = d
-            for k in keys[:j]:
-                tmp_dict = tmp_dict[k]
-            tmp_dict[i] = tmp
-            tmp = tmp_dict
+        tmp = self.init_nested_dict(keys[i:], val) 
+        tmp_dict = d
+        for k in keys[:i]:
+            if k not in tmp_dict:
+                tmp_dict[k] = {}
+            tmp_dict = tmp_dict[k]
+        tmp_dict[keys[i]] = tmp[keys[i]]
+        return d
         
-        return tmp
-        
-        
-
 
     def Q_s(self, s):
         tmp = self.Q
@@ -209,8 +227,7 @@ class Cluster:
             if el in tmp:
                 tmp = tmp[el]
             else:
-                tmp_keys = s[:i]
-                self.Q[s[:i]] = {}
+                self.modify_nested_dict(self.Q, s, [0 for _ in range(len(self.taskTypes) + 1)], i)
                 return [0 for _ in range(len(self.taskTypes) + 1)]
         return tmp
 
@@ -240,9 +257,11 @@ class Cluster:
         return np.argmax(tmp)
 
 
-    def allocate_task(self, a, allocable_tasks):
+    def allocate_task(self, a, allocable_tasks, s):
         task = None
         idx = None
+        # for each task, check if it is of the type determined by the action 
+        # if it is, pick the one with the highest utility
         for i, t in enumerate(allocable_tasks):
             if t.taskType.task_type_idx == a:
                 if task == None:
@@ -253,8 +272,14 @@ class Cluster:
                         task = t
                         idx = i
         
+
+        if task == None:
+            print(s)
+            print(a)
+
         assert task != None
 
+        # sort nodes in decreasing capacity
         self.nodes.sort(reverse=True, key=(lambda node: node.capacities))
         for j in range(len(self.nodes)):
             enough_capacity = True
@@ -303,8 +328,8 @@ class Cluster:
 
 
     def learn(self, s, a, r, s_new):
-        tmp = self.Q(s)
-        Q_s_new = self.Q(s_new)
+        tmp = self.Q_s(s)
+        Q_s_new = self.Q_s(s_new)
 
         tmp[a] = (1-self.alpha)*tmp[a] + self.alpha*(r + self.gamma*(sum([pi_a*Q_s_a for pi_a, Q_s_a in zip(self.pi(s_new),Q_s_new)])))
 
@@ -316,12 +341,12 @@ class Cluster:
         s = self.get_current_state(allocable_tasks)
         while len(allocable_tasks) > 0:
             allocable_tasks = self.get_allocable()
-            a = self.learned_policy(s)
+            a = self.learned_policy(s) # policy can only output doable actions (can't output action of task type that is not the set of currently allocable tasks)
             if a == len(self.taskTypes):
                 allocable_tasks = []
             else:
-                r = self.allocate_task(a, allocable_tasks) # to be implemented, should add task to processing tasks and remove from received tasks
-                allocable_tasks = self.get_allocable(self)
+                r = self.allocate_task(a, allocable_tasks, s) # add task to processing tasks and remove from received tasks
+                allocable_tasks = self.get_allocable()
                 s_new = self.get_current_state(allocable_tasks)
                 self.learn(s, a, r, s_new) 
                 s = s_new
