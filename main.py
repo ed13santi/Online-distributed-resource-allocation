@@ -237,13 +237,14 @@ class Cluster:
 
         mask = []
         for i in range(len(self.taskTypes)):
-            if s[i] > 0:
+            if s[i] > 0.0:
                 mask.append(1)
             else:
                 mask.append(0)
 
+
         a = None
-        for i, (switch, val) in enumerate(zip(mask, tmp)):
+        for i, (switch, val) in enumerate(zip(mask, tmp[:len(self.taskTypes)])):
             if switch == 1:
                 if a == None:
                     a = i
@@ -254,28 +255,20 @@ class Cluster:
         if a == None:
             a = len(self.taskTypes)
 
-        return np.argmax(tmp)
+        return a
 
 
-    def allocate_task(self, a, allocable_tasks, s):
+    def allocate_task(self, a, allocable_tasks):
         task = None
         idx = None
         # for each task, check if it is of the type determined by the action 
         # if it is, pick the one with the highest utility
-        for i, t in enumerate(allocable_tasks):
+        for t in allocable_tasks:
             if t.taskType.task_type_idx == a:
                 if task == None:
                     task = t
-                    idx = i
-                else:
-                    if t.u > task.u:
-                        task = t
-                        idx = i
-        
-
-        if task == None:
-            print(s)
-            print(a)
+                elif t.u > task.u:
+                    task = t
 
         assert task != None
 
@@ -306,12 +299,16 @@ class Cluster:
         tmp = self.Q_s(s)
         mask = []
         nonzero = 0
+        # create mask of actions that are available and
+        # count number of available action types
         for i in range(len(self.taskTypes)):
-            if s[i] > 0:
+            if s[i] > 0.0:
                 mask.append(1)
                 nonzero += 1
             else:
                 mask.append(0)
+
+        nonzero += 1 # for the None action which is always possible
 
         a = [0 for _ in range(len(self.taskTypes)+1)]
         max = -inf
@@ -322,6 +319,8 @@ class Cluster:
                 if tmp[i] > max:
                     maxidx = i
         a[maxidx] = self.epsilon / nonzero + 1 - self.epsilon
+
+        a[len(self.taskTypes)] = self.epsilon / nonzero
 
         return a
 
@@ -345,7 +344,7 @@ class Cluster:
             if a == len(self.taskTypes):
                 allocable_tasks = []
             else:
-                r = self.allocate_task(a, allocable_tasks, s) # add task to processing tasks and remove from received tasks
+                r = self.allocate_task(a, allocable_tasks) # add task to processing tasks and remove from received tasks
                 allocable_tasks = self.get_allocable()
                 s_new = self.get_current_state(allocable_tasks)
                 self.learn(s, a, r, s_new) 
@@ -355,9 +354,11 @@ class Cluster:
                 # the same action
 
 
-    def selectAndAllocate(self):
-        #self.greedy_allocation()
-        self.learned_local_allocation()
+    def selectAndAllocate(self, learned):
+        if learned:
+            self.learned_local_allocation()
+        else:
+            self.greedy_allocation()
 
 
     def random_forwarding(self):
@@ -394,8 +395,8 @@ class Cluster:
                     del node.processing_tasks[i]
 
 
-    def allocationAndRouting(self):
-        self.selectAndAllocate()
+    def allocationAndRouting(self, learnedAllocation):
+        self.selectAndAllocate(learnedAllocation)
         return self.forwardUnallocatedTasks()
 
 
@@ -473,24 +474,69 @@ def main():
 
 
     utility_rates = []
-    proc_tasks = []
+    utility_rates_l = []
 
-    for time_step in range(100):
-        for c in clusters:
-            c.advanceTime(task_types)
-        for c in clusters:
-            forwarded_tasks = c.allocationAndRouting()
-            for (task, (cluster_index, transfer_time)) in forwarded_tasks:
-                clusters[cluster_index].tasks_to_be_received.append((task, transfer_time))
 
-        cluster_utility_rates = [c.local_utility() for c in clusters]
-        utility_rate = sum(cluster_utility_rates)
-        utility_rates.append(utility_rate)
-        #proc_tasks.append(sum([len(c.tasks_to_be_received) for c in clusters]))
+    for _ in range(10):
+        #greedy
+        clusters = []
+        for i, n_nodes in enumerate(n_nodes_each_cluster):
+            if i in C_receivers:
+                clusters.append(Cluster(A[i], True, task_types, n_nodes, lows, highs, received_tasks_means[C_receivers.index(i)]))
+            else:
+                clusters.append(Cluster(A[i], False, task_types, n_nodes, lows, highs))
+        for time_step in range(100):
+            for c in clusters:
+                c.advanceTime(task_types)
+            for c in clusters:
+                forwarded_tasks = c.allocationAndRouting(False)
+                for (task, (cluster_index, transfer_time)) in forwarded_tasks:
+                    clusters[cluster_index].tasks_to_be_received.append((task, transfer_time))
 
-        print(time_step)
+            cluster_utility_rates = [c.local_utility() for c in clusters]
+            utility_rate = sum(cluster_utility_rates)
+            utility_rates.append(utility_rate)
+            #proc_tasks.append(sum([len(c.tasks_to_be_received) for c in clusters]))
 
-    plt.plot(utility_rates)
+            print(time_step)
+
+        #learned allocation
+
+        clusters = []
+        for i, n_nodes in enumerate(n_nodes_each_cluster):
+            if i in C_receivers:
+                clusters.append(Cluster(A[i], True, task_types, n_nodes, lows, highs, received_tasks_means[C_receivers.index(i)]))
+            else:
+                clusters.append(Cluster(A[i], False, task_types, n_nodes, lows, highs))
+        for time_step in range(100):
+            for c in clusters:
+                c.advanceTime(task_types)
+            for c in clusters:
+                forwarded_tasks = c.allocationAndRouting(True)
+                for (task, (cluster_index, transfer_time)) in forwarded_tasks:
+                    clusters[cluster_index].tasks_to_be_received.append((task, transfer_time))
+
+            cluster_utility_rates = [c.local_utility() for c in clusters]
+            utility_rate = sum(cluster_utility_rates)
+            utility_rates_l.append(utility_rate)
+            #proc_tasks.append(sum([len(c.tasks_to_be_received) for c in clusters]))
+
+            print(time_step)
+
+    utility_rates_ave = []
+    utility_rates_ave_l = []
+    l = len(utility_rates) // 10
+    for i in range(l):
+        s = 0
+        sl = 0
+        for j in range(10):
+            s += utility_rates[i+j*l]
+            sl += utility_rates_l[i+j*l]
+        utility_rates_ave.append(s)
+        utility_rates_ave_l.append(sl)
+
+    plt.plot(utility_rates_ave)
+    plt.plot(utility_rates_ave_l)
     plt.show()
             
 
