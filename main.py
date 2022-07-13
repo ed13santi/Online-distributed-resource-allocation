@@ -325,6 +325,11 @@ class Cluster:
         return a
 
 
+    def act(self, s):
+        action_probabilities = self.pi(s)
+        return random.choices(range(len(action_probabilities)), action_probabilities, k = 1)
+
+
 
     def learn(self, s, a, r, s_new):
         tmp = self.Q_s(s)
@@ -340,7 +345,7 @@ class Cluster:
         s = self.get_current_state(allocable_tasks)
         while len(allocable_tasks) > 0:
             allocable_tasks = self.get_allocable()
-            a = self.pi(s) # policy can only output doable actions (can't output action of task type that is not the set of currently allocable tasks)
+            a = self.act(s) # policy can only output doable actions (can't output action of task type that is not the set of currently allocable tasks)
             if a == len(self.taskTypes):
                 allocable_tasks = []
             else:
