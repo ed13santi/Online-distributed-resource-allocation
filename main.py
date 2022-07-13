@@ -232,30 +232,30 @@ class Cluster:
         return tmp
 
 
-    def learned_policy(self, s):
-        tmp = self.Q_s(s)
+    #def learned_policy(self, s):
+        #tmp = self.Q_s(s)
 
-        mask = []
-        for i in range(len(self.taskTypes)):
-            if s[i] > 0.0:
-                mask.append(1)
-            else:
-                mask.append(0)
+        # mask = []
+        # for i in range(len(self.taskTypes)):
+        #     if s[i] > 0.0:
+        #         mask.append(1)
+        #     else:
+        #         mask.append(0)
 
 
-        a = None
-        for i, (switch, val) in enumerate(zip(mask, tmp[:len(self.taskTypes)])):
-            if switch == 1:
-                if a == None:
-                    a = i
-                else:
-                    if val > tmp[a]:
-                        a = i
+        # a = None
+        # for i, (switch, val) in enumerate(zip(mask, tmp[:len(self.taskTypes)])):
+        #     if switch == 1:
+        #         if a == None:
+        #             a = i
+        #         else:
+        #             if val > tmp[a]:
+        #                 a = i
 
-        if a == None:
-            a = len(self.taskTypes)
+        # if a == None:
+        #     a = len(self.taskTypes)
 
-        return a
+        # return a
 
 
     def allocate_task(self, a, allocable_tasks):
@@ -340,7 +340,7 @@ class Cluster:
         s = self.get_current_state(allocable_tasks)
         while len(allocable_tasks) > 0:
             allocable_tasks = self.get_allocable()
-            a = self.learned_policy(s) # policy can only output doable actions (can't output action of task type that is not the set of currently allocable tasks)
+            a = self.pi(s) # policy can only output doable actions (can't output action of task type that is not the set of currently allocable tasks)
             if a == len(self.taskTypes):
                 allocable_tasks = []
             else:
@@ -436,7 +436,7 @@ def main():
     received_tasks_means_light = [tuple(el/2 for el in listEl) for listEl in received_tasks_means_heavy]
 
     # light or heavy task load
-    heavy = False # if false we use light
+    heavy = True # if false we use light
 
     if heavy:
         received_tasks_means = received_tasks_means_heavy
