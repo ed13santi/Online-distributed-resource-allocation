@@ -260,7 +260,6 @@ class Cluster:
 
     def allocate_task(self, a, allocable_tasks):
         task = None
-        idx = None
         # for each task, check if it is of the type determined by the action 
         # if it is, pick the one with the highest utility
         for t in allocable_tasks:
@@ -308,7 +307,9 @@ class Cluster:
             else:
                 mask.append(0)
 
-        nonzero += 1 # for the None action which is always possible
+        # add mask element for the None action which is always possible
+        mask.append(1)
+        nonzero += 1 
 
         a = [0 for _ in range(len(self.taskTypes)+1)]
         max = -inf
@@ -319,8 +320,6 @@ class Cluster:
                 if tmp[i] > max:
                     maxidx = i
         a[maxidx] = self.epsilon / nonzero + 1 - self.epsilon
-
-        a[len(self.taskTypes)] = self.epsilon / nonzero
 
         return a
 
