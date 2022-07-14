@@ -88,6 +88,9 @@ class Cluster:
         self.gamma = gamma
         self.epsilon = 1
         self.epsilon_decay = 0.99
+        self.prev_state = None
+        self.prev_a = None
+        self.prev_r = None
 
 
     def initialize_Q_table(self):
@@ -269,22 +272,21 @@ class Cluster:
                 elif t.u > task.u:
                     task = t
 
-        assert task != None
-
-        # sort nodes in decreasing capacity
-        self.nodes.sort(reverse=True, key=(lambda node: node.capacities))
-        for j in range(len(self.nodes)):
-            enough_capacity = True
-            for c, d in zip(self.nodes[j].remaining_capacities, task.ds):
-                if d > c:
-                    enough_capacity = False
-            if enough_capacity:
-                self.nodes[j].process_new_task(task)
-                for z, t in enumerate(self.received_tasks):
-                    if t == task:
-                        del self.received_tasks[z]
-                self.nodes.sort(reverse=True, key=(lambda node: node.capacities))
-                return task.u
+        if task != None:
+            # sort nodes in decreasing capacity
+            self.nodes.sort(reverse=True, key=(lambda node: node.capacities))
+            for j in range(len(self.nodes)):
+                enough_capacity = True
+                for c, d in zip(self.nodes[j].remaining_capacities, task.ds):
+                    if d > c:
+                        enough_capacity = False
+                if enough_capacity:
+                    self.nodes[j].process_new_task(task)
+                    for z, t in enumerate(self.received_tasks):
+                        if t == task:
+                            del self.received_tasks[z]
+                    self.nodes.sort(reverse=True, key=(lambda node: node.capacities))
+                    return task.u
         
         return 0
         # which node does the task go to? Currently best-first allocation
@@ -326,7 +328,7 @@ class Cluster:
 
     def act(self, s):
         action_probabilities = self.pi(s)
-        return random.choices(range(len(action_probabilities)), action_probabilities, k = 1)
+        return random.choices(range(len(action_probabilities)), action_probabilities, k = 1)[0]
 
 
 
@@ -342,17 +344,26 @@ class Cluster:
     def learned_local_allocation(self):
         allocable_tasks = self.get_allocable()
         s = self.get_current_state(allocable_tasks)
+        if self.prev_state != None and self.prev_a != None:
+            self.learn(self.prev_state, self.prev_a, self.prev_r, s)
         while len(allocable_tasks) > 0:
             allocable_tasks = self.get_allocable()
             a = self.act(s) # policy can only output doable actions (can't output action of task type that is not the set of currently allocable tasks)
             if a == len(self.taskTypes):
                 allocable_tasks = []
+                self.prev_state = self.get_current_state(allocable_tasks) # not sure i should be doing this bootstrapping between cycles
+                self.prev_a = a
+                self.prev_r = 0
             else:
                 r = self.allocate_task(a, allocable_tasks) # add task to processing tasks and remove from received tasks
                 allocable_tasks = self.get_allocable()
-                s_new = self.get_current_state(allocable_tasks)
-                self.learn(s, a, r, s_new) 
-                s = s_new
+                if allocable_tasks != []:
+                    s_new = self.get_current_state(allocable_tasks)
+                    self.learn(s, a, r, s_new) 
+                else:
+                    self.prev_state = s
+                    self.prev_a = a
+                    self.prev_r = r
                 # THIS WAY THE Q VALUE OF THE None action is never updated
                 # it is possible that the action a is not feasible and no task is allocated and it gets stuck in a long loop of choosing something that doesnt change the allocable tasks and it keeps choosing
                 # the same action
@@ -481,19 +492,22 @@ def main():
     utility_rates_l = []
 
 
-    for _ in range(10):
-        #greedy
+    n_trials = 1
+    episode_length = 500
+
+    for _ in range(n_trials):
+        # learned allocation
         clusters = []
         for i, n_nodes in enumerate(n_nodes_each_cluster):
             if i in C_receivers:
                 clusters.append(Cluster(A[i], True, task_types, n_nodes, lows, highs, received_tasks_means[C_receivers.index(i)]))
             else:
                 clusters.append(Cluster(A[i], False, task_types, n_nodes, lows, highs))
-        for time_step in range(100):
+        for time_step in range(episode_length):
             for c in clusters:
                 c.advanceTime(task_types)
             for c in clusters:
-                forwarded_tasks = c.allocationAndRouting(False)
+                forwarded_tasks = c.allocationAndRouting(True)
                 for (task, (cluster_index, transfer_time)) in forwarded_tasks:
                     clusters[cluster_index].tasks_to_be_received.append((task, transfer_time))
 
@@ -504,7 +518,7 @@ def main():
 
             print(time_step)
 
-        #learned allocation
+        #greedy allocation
 
         clusters = []
         for i, n_nodes in enumerate(n_nodes_each_cluster):
@@ -512,11 +526,11 @@ def main():
                 clusters.append(Cluster(A[i], True, task_types, n_nodes, lows, highs, received_tasks_means[C_receivers.index(i)]))
             else:
                 clusters.append(Cluster(A[i], False, task_types, n_nodes, lows, highs))
-        for time_step in range(100):
+        for time_step in range(episode_length):
             for c in clusters:
                 c.advanceTime(task_types)
             for c in clusters:
-                forwarded_tasks = c.allocationAndRouting(True)
+                forwarded_tasks = c.allocationAndRouting(False)
                 for (task, (cluster_index, transfer_time)) in forwarded_tasks:
                     clusters[cluster_index].tasks_to_be_received.append((task, transfer_time))
 
@@ -529,13 +543,13 @@ def main():
 
     utility_rates_ave = []
     utility_rates_ave_l = []
-    l = len(utility_rates) // 10
+    l = len(utility_rates) // n_trials
     for i in range(l):
         s = 0
         sl = 0
-        for j in range(10):
-            s += utility_rates[i+j*l]
-            sl += utility_rates_l[i+j*l]
+        for j in range(n_trials):
+            s += utility_rates[i+j*l] / n_trials
+            sl += utility_rates_l[i+j*l] / n_trials
         utility_rates_ave.append(s)
         utility_rates_ave_l.append(sl)
 
