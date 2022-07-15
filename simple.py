@@ -1,3 +1,4 @@
+from audioop import add
 from cmath import inf
 from math import prod
 from unittest.mock import NonCallableMagicMock
@@ -344,7 +345,7 @@ class Cluster:
     def learned_local_allocation(self):
         allocable_tasks = self.get_allocable()
         s = self.get_current_state(allocable_tasks)
-        if self.prev_state != None and self.prev_a != None:
+        if self.prev_state is not None and self.prev_a is not None:
             self.learn(self.prev_state, self.prev_a, self.prev_r, s)
         while len(allocable_tasks) > 0:
             allocable_tasks = self.get_allocable()
@@ -429,26 +430,20 @@ def add_connection(matrix, a, b):
 ##################################################################################################
 
 def main():
-    no_clusters = 16
+    no_clusters = 2
 
     # matrix of transfer times between clusters (if 0 it means no connection so actually infinity in terms of time)
     A = np.zeros((no_clusters, no_clusters))
-    for i in range(no_clusters):
-        add_connection(A, i, i)
-    for i in range(no_clusters-1):
-        add_connection(A,  i,  i+1)
-    add_connection(A, no_clusters-1,  0)
-    add_connection(A,  3,  12)
-    add_connection(A,  4,  11)
+    add_connection(A, 0, 0)
+    add_connection(A, 1, 1)
+    add_connection(A, 0, 1)
+    add_connection(A, 1, 0)
 
     # task receivers
-    C_receivers = [5,6,9,10]
+    C_receivers = [0]
 
     # received tasks means (tasks follow Poisson distribution)
-    received_tasks_means_heavy = [(40, 4,20, 8),
-                                  (28, 4,16, 4),
-                                  (32,16, 4, 8),
-                                  (28,24, 8, 6)]
+    received_tasks_means_heavy = [(10,)]
 
     received_tasks_means_light = [tuple(el/2 for el in listEl) for listEl in received_tasks_means_heavy]
 
@@ -464,17 +459,14 @@ def main():
 
 
     # task types
-    task_types = [TaskType((20,1,9,8),   10, 0),
-                  TaskType((30,5,45,8),  10, 1),
-                  TaskType((35,6,15,48), 10, 2),
-                  TaskType((50,25,47,43),10, 3)]
+    task_types = [TaskType((1,1,10,10),   10, 0)]
 
 
     # cluster is the list of clusters of respip ources
     clusters = []
-    n_nodes_each_cluster = [32, 72, 52, 84, 64, 76, 60, 64, 76, 60, 80, 44, 64, 88, 56, 52]
-    lows = [50,50]
-    highs = [150,150]
+    n_nodes_each_cluster = [2,2]
+    lows = [5,5]
+    highs = [5,5]
     for i, n_nodes in enumerate(n_nodes_each_cluster):
         if i in C_receivers:
             clusters.append(Cluster(A[i], True, task_types, n_nodes, lows, highs, received_tasks_means[C_receivers.index(i)]))
@@ -486,7 +478,7 @@ def main():
 
 
     # communication limit
-    communication_limit = 300
+    communication_limit = 300 # This needs to be incorporated somehow
 
 
 
