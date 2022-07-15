@@ -509,7 +509,7 @@ def main():
             for c in clusters:
                 c.advanceTime(task_types)
             for c in clusters:
-                forwarded_tasks = c.allocationAndRouting(True)
+                forwarded_tasks = c.allocationAndRouting(False)
                 for (task, (cluster_index, transfer_time)) in forwarded_tasks:
                     clusters[cluster_index].tasks_to_be_received.append((task, transfer_time))
 
@@ -532,7 +532,7 @@ def main():
             for c in clusters:
                 c.advanceTime(task_types)
             for c in clusters:
-                forwarded_tasks = c.allocationAndRouting(False)
+                forwarded_tasks = c.allocationAndRouting(True)
                 for (task, (cluster_index, transfer_time)) in forwarded_tasks:
                     clusters[cluster_index].tasks_to_be_received.append((task, transfer_time))
 

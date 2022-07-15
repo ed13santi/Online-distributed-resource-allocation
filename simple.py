@@ -26,6 +26,9 @@ class Node:
         self.processing_tasks.append(task)
         self.remaining_capacities = [rc - d for rc, d in zip(self.remaining_capacities, task.ds)]
 
+    def print_status(self):
+        print("- node - capacities {} - remaining_capacities {} - processing_tasks {}".(self.capacities, self.remaining_capacities, self.processing_tasks))
+
 
 class TaskType:
     def __init__(self, feature_vector, wait_time, type_index):
@@ -92,6 +95,15 @@ class Cluster:
         self.prev_state = None
         self.prev_a = None
         self.prev_r = None
+
+    def print_status(self):
+        print("- CLUSTER -")
+        print("/t received tasks: no. {}").format(len(self.received_tasks))
+        print("/t received_tasks_external: no. {}").format(len(self.received_tasks_external))
+        print("/t tasks_to_be_received: no. {}").format(len(self.tasks_to_be_received))
+        for n in self.nodes:
+            n.print_status()
+
 
 
     def initialize_Q_table(self):
@@ -459,7 +471,7 @@ def main():
 
 
     # task types
-    task_types = [TaskType((1,1,10,10),   10, 0)]
+    task_types = [TaskType((1,1,1,1),   10, 0)]
 
 
     # cluster is the list of clusters of respip ources
@@ -523,6 +535,7 @@ def main():
         for time_step in range(episode_length):
             for c in clusters:
                 c.advanceTime(task_types)
+                c.print_status()
             for c in clusters:
                 forwarded_tasks = c.allocationAndRouting(False)
                 for (task, (cluster_index, transfer_time)) in forwarded_tasks:
