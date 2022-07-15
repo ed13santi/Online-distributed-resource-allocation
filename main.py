@@ -344,7 +344,7 @@ class Cluster:
     def learned_local_allocation(self):
         allocable_tasks = self.get_allocable()
         s = self.get_current_state(allocable_tasks)
-        if self.prev_state != None and self.prev_a != None:
+        if self.prev_state is not None and self.prev_a is not None:
             self.learn(self.prev_state, self.prev_a, self.prev_r, s)
         while len(allocable_tasks) > 0:
             allocable_tasks = self.get_allocable()
